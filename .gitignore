@@ -1,0 +1,35 @@
+# MCP config (contains access tokens)
+.mcp.json
+.claude/
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# Temp files
+/tmp/
+*.tmp
+uploaded_files/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+docs/
