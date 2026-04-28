@@ -33,6 +33,34 @@ const DEMO_DATASETS = [
   },
 ]
 
+const DEMO_HEADERS: Record<string, { header: string; delimiter: string; hasHeader?: boolean }> = {
+  'adult_income.csv': {
+    header: 'age,workclass,fnlwgt,education,education_num,marital_status,occupation,relationship,race,sex,capital_gain,capital_loss,hours_per_week,native_country,income',
+    delimiter: ',',
+  },
+  'german_credit.csv': {
+    header: 'status duration credit_history purpose credit_amount savings employment installment_rate personal_status_sex other_debtors residence_since property age other_installment_plans housing number_credits job people_liable telephone foreign_worker credit_risk',
+    delimiter: ' ',
+  },
+  'compas_recidivism.csv': {
+    header: '',
+    delimiter: ',',
+    hasHeader: true,
+  },
+}
+
+function normalizeDemoCsv(filename: string, csvText: string): string {
+  const config = DEMO_HEADERS[filename]
+  if (!config || config.hasHeader) return csvText
+
+  const trimmed = csvText.replace(/^\uFEFF/, '')
+  const firstLine = trimmed.split(/\r?\n/, 1)[0]?.toLowerCase() ?? ''
+  const headerPrefix = config.header.split(config.delimiter)[0]?.toLowerCase() ?? ''
+
+  if (headerPrefix && firstLine.includes(headerPrefix)) return trimmed
+  return `${config.header}\n${trimmed}`
+}
+
 export default function Home() {
   const navigate = useNavigate()
   const [user, setUser] = useState<SupabaseUser | null>(null)
@@ -81,8 +109,9 @@ export default function Home() {
       const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
       const response = await fetch(`${apiBase}/proxy-dataset?url=${encodeURIComponent(dataset.url)}`)
       if (!response.ok) throw new Error('Failed to fetch demo dataset')
-      const blob = await response.blob()
-      const demoFile = new File([blob], dataset.filename, { type: 'text/csv' })
+      const rawText = await response.text()
+      const csvText = normalizeDemoCsv(dataset.filename, rawText)
+      const demoFile = new File([csvText], dataset.filename, { type: 'text/csv' })
       await processFile(demoFile)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load demo dataset')
