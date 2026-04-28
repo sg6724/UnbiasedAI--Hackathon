@@ -1,17 +1,24 @@
 import os
+import io
 import uuid
 import logging
-import shutil
 import httpx
 import pandas as pd
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from google.cloud import storage
 from analyzer import feature_detector
-from utils.data_loader import get_upload_dir
 from utils.auth import get_current_user, AuthUser
 from utils.supabase_client import SUPABASE_URL, SUPABASE_ANON_KEY
 
 router = APIRouter()
 logger = logging.getLogger("fairlens.upload")
+
+_GCS_BUCKET = os.getenv("GCS_BUCKET", "fairlens-uploads-foresightflow")
+
+
+def _bucket() -> storage.Bucket:
+    client = storage.Client()
+    return client.bucket(_GCS_BUCKET)
 
 
 @router.post("/upload")
@@ -24,37 +31,32 @@ async def upload_dataset(
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
+    file_bytes = await file.read()
     file_id = str(uuid.uuid4())
-    upload_dir = get_upload_dir()
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, f"{file_id}.csv")
 
     try:
-        with open(file_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-        logger.info("Saved to disk: %s", file_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
-
-    try:
-        df = pd.read_csv(file_path, sep=None, engine="python")
+        df = pd.read_csv(io.BytesIO(file_bytes), sep=None, engine="python")
         logger.info("Parsed CSV: %d rows × %d cols", *df.shape)
     except Exception:
         try:
-            df = pd.read_csv(file_path, sep=None, engine="python", header=None)
+            df = pd.read_csv(io.BytesIO(file_bytes), sep=None, engine="python", header=None)
             logger.info("Parsed CSV (no header): %d rows × %d cols", *df.shape)
         except Exception as e:
-            os.remove(file_path)
             logger.error("CSV parse failed: %s", e)
             raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
 
     if df.empty or len(df.columns) < 2:
-        os.remove(file_path)
         raise HTTPException(status_code=400, detail="CSV must have at least 2 columns and 1 row")
 
     try:
-        with open(file_path, "rb") as f:
-            file_bytes = f.read()
+        blob = _bucket().blob(f"{file_id}.csv")
+        blob.upload_from_string(file_bytes, content_type="text/csv")
+        logger.info("Uploaded to GCS: %s/%s.csv", _GCS_BUCKET, file_id)
+    except Exception as e:
+        logger.error("GCS upload error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+
+    try:
         storage_path = f"{auth.user_id}/{file_id}.csv"
         logger.info("Uploading to Supabase Storage: datasets/%s", storage_path)
         response = httpx.post(

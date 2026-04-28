@@ -6,5 +6,7 @@ scikit-learn
 fairlearn
 scipy
 google-genai
+google-cloud-storage
 python-multipart
 python-dotenv
+httpx
