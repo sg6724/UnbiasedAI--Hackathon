@@ -1,76 +1,71 @@
-# FairLens — Local Setup Guide
-
-This guide gets the full FairLens stack running on your machine in under 10 minutes.
+# FairLens — Setup Guide
 
 ---
 
-## Prerequisites
+## Live Deployment
+
+| Service | URL |
+|---|---|
+| Frontend | https://unbiased-ai-bice.vercel.app/ |
+| Backend API | https://fairlens-backend-1059141951832.asia-south1.run.app |
+| API Docs (Swagger) | https://fairlens-backend-1059141951832.asia-south1.run.app/docs |
+
+---
+
+## Local Development
+
+### Prerequisites
 
 | Tool | Version | Install |
 |---|---|---|
 | Python | 3.11+ | https://python.org |
-| `uv` (fast Python package manager) | latest | `pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| `uv` | latest | `pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Node.js | 18+ | https://nodejs.org |
 | npm | 9+ | comes with Node |
-| Git | any | https://git-scm.com |
 
 ---
 
-## Step 1 — Clone the Repository
+### Step 1 — Clone
 
 ```bash
 git clone <YOUR_GITHUB_REPO_URL>
-cd fairlens
+cd UnbiasedAI--Hackathon
 ```
 
 ---
 
-## Step 2 — Backend Setup
+### Step 2 — Backend
 
-### 2a. Enter the backend directory
-
-```bash
-cd backend
-```
-
-### 2b. Create environment file
-
-Create a file named `.env` inside `backend/` and paste the following:
+#### 2a. Create `backend/.env`
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
-UPLOAD_DIR=/tmp/fairlens_uploads
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
+GCS_BUCKET=your_gcs_bucket_name        # or omit to use local /tmp storage
+UPLOAD_DIR=/tmp/fairlens_uploads       # only used as fallback
 ```
 
-### 2c. Install dependencies and start the server
+> For local dev without GCS, the backend falls back to local disk at `UPLOAD_DIR`. Set `GCS_BUCKET` only if you have a Google Cloud project configured.
+
+#### 2b. Start the backend
 
 ```bash
+cd backend
 uv run uvicorn main:app --reload
 ```
 
-> `uv` will automatically create a virtual environment and install all packages from `requirements.txt` on the first run. This takes ~2 minutes the first time.
+`uv` auto-creates a virtualenv and installs `requirements.txt` on first run (~2 min).
 
-The backend will be running at **http://localhost:8000**
-
-You can verify it's working by opening http://localhost:8000/docs — you'll see the interactive FastAPI Swagger UI.
+Backend runs at **http://localhost:8000** — verify at http://localhost:8000/docs.
 
 ---
 
-## Step 3 — Frontend Setup
+### Step 3 — Frontend
 
-Open a **new terminal tab/window** (keep the backend running).
+Open a new terminal (keep the backend running).
 
-### 3a. Enter the frontend directory
-
-```bash
-cd frontend   # from the repo root, or: cd ../frontend from backend/
-```
-
-### 3b. Create environment file
-
-Create a file named `.env` inside `frontend/` and paste the following:
+#### 3a. Create `frontend/.env`
 
 ```env
 VITE_SUPABASE_URL=your_supabase_url
@@ -78,40 +73,63 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-### 3c. Install dependencies and start the dev server
+#### 3b. Start the frontend
 
 ```bash
+cd frontend
 npm install
 npm run dev
 ```
 
-The frontend will be running at **http://localhost:5173**
+Frontend runs at **http://localhost:5173**.
 
 ---
 
-## Step 4 — Verify Everything Works
+### Step 4 — Verify
 
-1. Open http://localhost:5173 in your browser
-2. Click **"Try with demo dataset"** → select Adult Income
-3. It should auto-configure → run the audit → show the results dashboard
-4. If you see a **BIASED** verdict with metrics, the full stack is working correctly
+1. Open http://localhost:5173
+2. Sign up / sign in via the auth modal
+3. Upload a CSV (or use a demo dataset)
+4. Configure sensitive + target columns → run the audit
+5. You should see a **BIASED** or **FAIR** verdict with metrics
 
 ---
 
-## Quick Reference — Running the App
+## Deploying
 
-Every time you want to develop locally, you need two terminals:
+### Backend — Google Cloud Run
 
-**Terminal 1 — Backend**
 ```bash
-cd fairlens/backend
-uv run uvicorn main:app --reload
+# Set project
+gcloud config set project YOUR_PROJECT_ID
+
+# Build and push image
+gcloud builds submit --tag asia-south1-docker.pkg.dev/YOUR_PROJECT_ID/YOUR_REPO/fairlens-backend backend/
+
+# Deploy
+gcloud run deploy fairlens-backend \
+  --image asia-south1-docker.pkg.dev/YOUR_PROJECT_ID/YOUR_REPO/fairlens-backend \
+  --platform managed \
+  --region asia-south1 \
+  --allow-unauthenticated \
+  --set-env-vars="GEMINI_API_KEY=...,SUPABASE_URL=...,SUPABASE_ANON_KEY=...,GCS_BUCKET=..." \
+  --memory=1Gi
 ```
 
-**Terminal 2 — Frontend**
+### Frontend — Vercel
+
 ```bash
-cd fairlens/frontend
-npm run dev
+cd frontend
+npm run build
+vercel --prod
+```
+
+Or connect the GitHub repo to Vercel and set these environment variables in the Vercel dashboard:
+
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+VITE_API_BASE_URL=https://your-cloud-run-url.run.app
 ```
 
 ---
@@ -119,23 +137,24 @@ npm run dev
 ## Troubleshooting
 
 **`ModuleNotFoundError` on backend start**
-`uv` should handle this automatically. If it doesn't, run: `uv pip install -r requirements.txt`
-
-**`aif360` install fails**
-Try: `uv pip install aif360 --no-deps` then `uv pip install -r requirements.txt`
+Run: `uv pip install -r requirements.txt`
 
 **Frontend shows "Network Error" or blank metrics**
-Make sure the backend is running at port 8000 and `VITE_API_BASE_URL=http://localhost:8000` is set in `frontend/.env`
+Check that `VITE_API_BASE_URL` points to a running backend.
+
+**Sign-in fails on deployed frontend**
+Add your frontend URL to Supabase → Authentication → URL Configuration → Redirect URLs.
 
 **Port 8000 already in use**
-Run backend on a different port: `uv run uvicorn main:app --reload --port 8001`
-Then update `VITE_API_BASE_URL=http://localhost:8001` in `frontend/.env`
+```bash
+uv run uvicorn main:app --reload --port 8001
+# then set VITE_API_BASE_URL=http://localhost:8001 in frontend/.env
+```
 
-**`/tmp/fairlens_uploads` permission error (Windows)**
-Change `UPLOAD_DIR` in `backend/.env` to a path like `C:/tmp/fairlens_uploads` and create that folder manually.
-
----
-
-## Production / Deployed Version
-
-The live deployed version is available at https://unbiased-ai-bice.vercel.app/ — frontend on Vercel, backend deployable to Google Cloud Run.
+**GCS permission error**
+Ensure the Cloud Run service account has `roles/storage.objectAdmin` on your bucket:
+```bash
+gcloud storage buckets add-iam-policy-binding gs://YOUR_BUCKET \
+  --member="serviceAccount:YOUR_SA@developer.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+```

@@ -20,7 +20,7 @@ No data-science expertise required.
 | Feature | Detail |
 |---|---|
 | **Auto model training** | Trains a baseline ML model on the fly — no pre-existing model needed |
-| **Fairlearn + AIF360 metrics** | Demographic Parity, Disparate Impact, Equalized Odds, Mean Difference |
+| **Fairlearn metrics** | Demographic Parity, Disparate Impact, Equalized Odds, Mean Difference |
 | **Proxy feature detection** | Chi-squared test catches hidden bias beyond obvious sensitive columns |
 | **Two mitigation techniques** | Reweighing (pre-processing) + Threshold Optimization (post-processing) |
 | **Before / after comparison** | Measurable improvement shown in the same dashboard |
@@ -32,53 +32,66 @@ No data-science expertise required.
 
 ## Tech Stack
 
-**Backend** — Python 3.11+, FastAPI, `fairlearn`, `aif360`, `scikit-learn`, `pandas`, `scipy`, Gemini API (`google-generativeai`), Supabase (audit history)
+**Backend** — Python 3.11, FastAPI, `fairlearn`, `scikit-learn`, `pandas`, `scipy`, Gemini API (`google-genai`), Supabase (auth + audit history), Google Cloud Storage (file storage)
 
-**Frontend** — React + Vite, Tailwind CSS, shadcn/ui, Recharts, Supabase JS client
+**Frontend** — React 18 + Vite, TypeScript, Tailwind CSS, Recharts, Supabase JS client
 
-**Infrastructure** — Vercel (frontend), backend deployable on Google Cloud Run, Supabase (storage + history)
+**Infrastructure** — Vercel (frontend), Google Cloud Run (backend, `asia-south1`), Google Cloud Storage (CSV uploads), Supabase (auth + audit history)
+
+---
+
+## Deployed URLs
+
+| Service | URL |
+|---|---|
+| Frontend | https://unbiased-ai-bice.vercel.app/ |
+| Backend API | https://fairlens-backend-1059141951832.asia-south1.run.app |
+| API Docs | https://fairlens-backend-1059141951832.asia-south1.run.app/docs |
 
 ---
 
 ## Project Structure
 
 ```
-fairlens/
+UnbiasedAI--Hackathon/
 ├── backend/
-│   ├── main.py                  # FastAPI entry point
+│   ├── main.py                  # FastAPI entry point, CORS, middleware
+│   ├── Dockerfile               # Cloud Run deployment
 │   ├── requirements.txt
 │   ├── routers/
-│   │   ├── upload.py            # POST /upload
-│   │   ├── analyze.py           # POST /analyze
-│   │   └── mitigate.py          # POST /mitigate
+│   │   ├── upload.py            # POST /upload — CSV ingestion → GCS + Supabase Storage
+│   │   ├── analyze.py           # POST /analyze — model training + fairness metrics
+│   │   ├── mitigate.py          # POST /mitigate — bias mitigation techniques
+│   │   └── proxy.py             # POST /proxy — proxy feature detection
 │   ├── analyzer/
-│   │   ├── feature_detector.py  # Keyword + cardinality + Gemini detection
-│   │   ├── model_trainer.py     # Auto-trains RandomForest / LR / DT
-│   │   ├── metrics.py           # Fairlearn MetricFrame + AIF360
-│   │   ├── proxy_detector.py    # Chi2 proxy detection
+│   │   ├── feature_detector.py  # Keyword + cardinality sensitive column detection
+│   │   ├── model_trainer.py     # Auto-trains RandomForest / LogisticRegression / DecisionTree
+│   │   ├── metrics.py           # Fairlearn MetricFrame fairness metrics
+│   │   ├── proxy_detector.py    # Chi-squared proxy feature detection
 │   │   ├── mitigation.py        # Reweighing + ThresholdOptimizer
-│   │   └── explainer.py         # Gemini report generation
+│   │   ├── explainer.py         # Gemini report generation
+│   │   └── validator.py         # Target column validation + leakage detection
 │   └── utils/
-│       └── data_loader.py       # CSV parsing + encoding
+│       ├── data_loader.py       # GCS-backed CSV read/write
+│       ├── auth.py              # Supabase JWT validation
+│       └── supabase_client.py   # Supabase client config
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── Home.jsx         # Upload page
-│   │   │   ├── Configure.jsx    # Column selection
-│   │   │   ├── Results.jsx      # Metrics dashboard
-│   │   │   └── Report.jsx       # Audit report + PDF download
+│   │   │   ├── Home.tsx
+│   │   │   └── Dashboard.tsx
 │   │   ├── components/
-│   │   │   ├── FileUpload.jsx
-│   │   │   ├── MetricCard.jsx
-│   │   │   ├── BiasChart.jsx
-│   │   │   ├── GroupComparisonBar.jsx
-│   │   │   └── MitigationPanel.jsx
-│   │   └── api/
-│   │       └── fairlens.js      # Axios API calls
-└── demo_datasets/
-    ├── adult_income.csv
-    ├── german_credit.csv
-    └── compas_recidivism.csv
+│   │   │   ├── AuthModal.tsx
+│   │   │   ├── AuditHistory.tsx
+│   │   │   ├── Navbar.tsx
+│   │   │   └── ...
+│   │   └── lib/
+│   │       ├── supabase.ts      # Supabase client
+│   │       └── api.ts           # Axios API calls to backend
+│   ├── index.html
+│   └── vite.config.ts
+├── Readme.MD
+└── setup.md
 ```
 
 ---
@@ -86,13 +99,16 @@ fairlens/
 ## API Endpoints
 
 ### `POST /upload`
-Accepts a CSV file. Returns detected columns, shape, and auto-identified sensitive features.
+Accepts a CSV file (multipart). Saves to GCS, mirrors to Supabase Storage.
+Returns detected columns, shape, and auto-identified sensitive features.
 
 ### `POST /analyze`
-Accepts `file_id`, `sensitive_col`, `target_col`, `model_type`. Returns full metrics object, proxy feature warnings, bias verdict, and Gemini report.
+Accepts `file_id`, `sensitive_col`, `target_col`, `model_type`.
+Returns full metrics, proxy feature warnings, bias verdict, and Gemini report. Saves audit to Supabase.
 
 ### `POST /mitigate`
-Accepts `file_id`, `sensitive_col`, `target_col`, `technique`. Returns before/after metric comparison.
+Accepts `file_id`, `sensitive_col`, `target_col`, `technique` (`reweighing` | `threshold`).
+Returns before/after metric comparison.
 
 ---
 
@@ -121,10 +137,10 @@ The 0.8 Disparate Impact threshold comes directly from the US EEOC 4/5ths rule �
 
 ## Local Setup
 
-See **[SETUP.md](./SETUP.md)** for full step-by-step instructions.
+See **[setup.md](./setup.md)** for full step-by-step instructions.
 
 ---
 
 ## Team
 
-Built for Solution Challenge 2026.
+Built for Google Solution Challenge 2026.
