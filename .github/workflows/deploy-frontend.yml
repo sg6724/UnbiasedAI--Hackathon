@@ -29,7 +29,7 @@ jobs:
       - name: Deploy to Vercel
         working-directory: frontend
         env:
-          VERCEL_TOKEN: YYvfGwofRR5up09oIHevxihA
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_zdaMF8TDAsYMvYDrqXpEXCB7
           VERCEL_PROJECT_ID: prj_DxVrLwAZnBCEIhOmKLK6lNGoA7ni
         run: vercel --prod --token $VERCEL_TOKEN --yes
